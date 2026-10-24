@@ -23,6 +23,8 @@ If the call holds a value from your list, written any usual way, it is **denied*
 | `Jane.Roe@Example.test` | `jane.roe@example.test`, `JANE.ROE@EXAMPLE.TEST`, `jane.roe%40example.test` |
 | `AB 123456` | `ab123456`, `AB-12 34 56` |
 
+Only whole values count, so it does not cry wolf on git work: an ID inside a commit hash (`9fab123456c0de`), two words that happen to glue into it (`grade AB, 123456 views`), or a long order number that ends with your phone's digits all pass.
+
 The deny names the **category** ("a phone number from your private list"), never the value, so Claude can remove it without the value turning up in another message. Local tools (`Write`, `Edit`, `echo … >> file`) are not its business. Calls are not logged.
 
 The list stores **salted SHA-256 hashes**, not the values: a random salt per list, file mode 600 on macOS and Linux. If the list cannot be read, an outbound call is not waved through: the hook asks you.
@@ -34,6 +36,7 @@ Standard library only, Python 3.8+.
 ```sh
 curl -O https://raw.githubusercontent.com/klavdiy-core/pii-tripwire/main/pii_tripwire.py
 python pii_tripwire.py add phone        # asks for the value, so it stays out of your shell history
+echo "+380501234567" | python pii_tripwire.py add phone   # or piped, for scripts
 python pii_tripwire.py add email
 python pii_tripwire.py add id           # passport, tax number, IBAN...
 python pii_tripwire.py list             # counts only: "1 email, 1 id, 1 phone"
@@ -49,6 +52,7 @@ The list lives in `~/.claude/pii-tripwire/list.json` (or `PII_TRIPWIRE_LIST`).
 - **Encoded data.** Base64, hex, or any other re-encoding of the value.
 - **The chat itself.** It guards tool calls. It cannot stop the model from writing the value in its answer to you.
 - **Network tools it doesn't know by name.** A custom script that uploads things looks like a local command.
+- **A hand-off to a sub-agent** (`Task`) is not checked itself; the sub-agent's own outbound calls go through the same hook.
 - **On Windows** file mode 600 does nothing; the list is still hashes only.
 
 It is a tripwire for the common accident, not a data-loss-prevention system.
@@ -59,7 +63,7 @@ It is a tripwire for the common accident, not a data-loss-prevention system.
 python -m unittest discover -s tests
 ```
 
-A phone in another notation, in national form, URL-encoded; emails in any case and percent-encoded; document numbers with and without separators; the same call without the data passing; local tools and local shell commands passing; `git push`, `gh` and `Invoke-WebRequest` checked; short numbers not tripping it; no plain values in the list; separate salts per list; a broken list asking; no list doing nothing; the deny reason never holding the value. Every check here was broken on purpose to see a test go red. All values in the tests are fictional.
+A phone in another notation, in national form, URL-encoded; emails in any case and percent-encoded; document numbers with and without separators; the same call without the data passing; local tools and local shell commands passing; `git push`, `gh` and `Invoke-WebRequest` checked; short numbers not tripping it; no plain values in the list; separate salts per list; a broken list asking; no list doing nothing; the deny reason never holding the value; no false alarm inside hashes, glued words or longer numbers; a piped `add`. Every check here was broken on purpose to see a test go red. All values in the tests are fictional.
 
 ## License
 
