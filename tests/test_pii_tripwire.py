@@ -63,6 +63,40 @@ class Matching(Base):
         self.assertIn("email", why)
 
 
+class Boundaries(Base):
+    """Found by an independent tester, 24.10: a hard deny on a git hash or an order number costs all trust."""
+
+    def test_an_id_inside_a_commit_hash_passes(self):
+        for url in ("https://github.com/a/b/commit/9fab123456c0de", "https://x.test/sha/deadAB123456beef"):
+            self.assertIsNone(self.decide("WebFetch", {"url": url})[0], url)
+
+    def test_two_separate_tokens_are_not_glued_into_an_id(self):
+        self.assertIsNone(self.decide("WebSearch", {"query": "grade AB, 123456 views"})[0])
+
+    def test_an_id_with_its_own_separators_is_still_caught(self):
+        for q in ("passport AB 123456 issued", "AB-12 34 56", "id=ab123456&x=1"):
+            self.assertEqual(self.decide("WebSearch", {"query": q})[0], "deny", q)
+
+    def test_a_phone_tail_inside_a_longer_number_passes(self):
+        for cmd in ("curl https://x.test/?order=9990501234567000", "curl https://x.test/?n=550123456789",
+                    "curl https://x.test/?track=1234567890501234567"):    # longer than any phone, same last 9
+            self.assertIsNone(self.decide("Bash", {"command": cmd})[0], cmd)
+
+    def test_the_national_form_is_still_caught(self):
+        self.assertEqual(self.decide("Bash", {"command": "curl -d tel=0501234567 https://x.test"})[0], "deny")
+
+
+class AddFromStdin(unittest.TestCase):
+    def test_add_reads_a_piped_value_instead_of_waiting_for_a_console(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as d:
+            env = dict(os.environ, PII_TRIPWIRE_LIST=os.path.join(d, "l.json"))
+            r = subprocess.run([sys.executable, pt.__file__, "add", "phone"], input="+380671112233\n",
+                               capture_output=True, text=True, env=env, timeout=20)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(pt.counts(env["PII_TRIPWIRE_LIST"]), {"phone": 1})
+
+
 class Scope(Base):
     def test_same_call_without_the_data_passes(self):
         self.assertEqual(self.decide("Bash", {"command": 'curl -d "phone=+38 050 999 00 11" https://x.test'})[0], None)

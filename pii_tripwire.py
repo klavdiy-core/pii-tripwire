@@ -24,6 +24,8 @@ MAX_TEXT = 2_000_000
 PHONE_TAIL = 9                       # national and international forms share their last 9 digits
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 PHONE_RUN = re.compile(r"\+?\d[\d \t().\-/]{6,}\d")
+MAX_PHONE_DIGITS = 15
+ID_RUN = re.compile(r"[A-Za-z0-9]+(?:[ \-./][A-Za-z0-9]+)*")
 NETWORK = re.compile(
     r"\b(curl|wget|httpie|https?|nc|ncat|netcat|ssh|scp|sftp|ftp|telnet|rsync|gh|hub|aws|gcloud|az|kubectl|"
     r"twine|mail|sendmail|mutt)\b|\bgit\s+(push|send-email)\b|\bdocker\s+push\b|\bnpm\s+publish\b|"
@@ -127,14 +129,21 @@ def find(data, text):
             d = _digits(m.group(0))
             if entries.get(_h(salt, "phone", d)):
                 hit.add("phone")
-            for i in range(0, max(0, len(d) - PHONE_TAIL) + 1):
-                if aux.get(_h(salt, "phone-tail", d[i:i + PHONE_TAIL])):
-                    hit.add("phone")
-                    break
-        c = _compact(t)
-        for n in data.get("id_lengths", []):
-            if any(entries.get(_h(salt, "id", c[i:i + n])) == "id" for i in range(0, max(0, len(c) - n) + 1)):
-                hit.add("id")
+            # the tail only where a number ends, and only in a run no longer than a phone can be (E.164: 15)
+            if len(d) <= MAX_PHONE_DIGITS and aux.get(_h(salt, "phone-tail", d[-PHONE_TAIL:])):
+                hit.add("phone")
+        lengths = data.get("id_lengths", [])
+        for m in ID_RUN.finditer(t):
+            # whole tokens only: an ID written "AB-12 34 56" is caught, one inside a hash or glued across a comma is not
+            toks = re.split(r"[ \-./]", m.group(0).upper())
+            for i in range(len(toks)):
+                acc = ""
+                for tok in toks[i:]:
+                    acc += tok
+                    if len(acc) in lengths and entries.get(_h(salt, "id", acc)) == "id":
+                        hit.add("id")
+                    if len(acc) >= max(lengths, default=0):
+                        break
     return hit
 
 
@@ -211,7 +220,12 @@ def main(argv=None):
         if len(argv) < 2 or argv[1] not in CATEGORIES:
             print("usage: pii_tripwire.py add phone|email|id", file=sys.stderr)
             return 2
-        value = argv[2] if len(argv) > 2 else getpass.getpass(f"{argv[1]} (not shown): ")
+        if len(argv) > 2:
+            value = argv[2]                  # works, but the value stays in shell history
+        elif not sys.stdin.isatty():
+            value = sys.stdin.readline().strip()   # piped: echo ... | add phone (getpass would wait for a console)
+        else:
+            value = getpass.getpass(f"{argv[1]} (not shown): ")
         try:
             add(path, argv[1], value)
         except ValueError as e:
