@@ -56,6 +56,14 @@ python pii_tripwire.py scan --staged             # exactly what the next commit 
 
 Each find is printed as `path:line: a phone number from your private list` — the category, never the value. A folder is scanned file by file (`.git`, `node_modules` and virtualenvs left out). Exit 1 on a find, 0 when clean, 2 when there is no list yet, no paths were given, or any path could not be read (a typo, an unexpanded glob): a path that was not checked is never a pass. Binary and unreadable files are named as skipped. As a git hook: `python /path/to/pii_tripwire.py scan --staged` in `.git/hooks/pre-commit`.
 
+**No list needed: `--patterns`.** `scan --patterns --staged` (or with files) also looks for common shapes, with or
+without your list: a phone in international form (`+` and 8–15 digits), an email address, a payment card number (a
+network's first digit and a valid Luhn sum), an IBAN (valid check digits), and the shapes of secrets: GitHub tokens
+(`ghp_…`, `github_pat_…`), `sk-…` API keys, Slack `xox…-` tokens, Telegram bot tokens, AWS access key ids and
+`-----BEGIN … PRIVATE KEY-----`. Each find says what it is, never the value. Dates, commit hashes, versions, message
+numbers, a public key, `…@example.com` and `noreply@…` addresses do not match. A national phone number without `+`
+is not caught by the patterns; put your own in the list for that.
+
 ## What it does not catch (said plainly)
 
 - **Names and street addresses.** Declension, transliteration and spelling make them unmatchable without many false alarms. v1 does structured identifiers only.

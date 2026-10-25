@@ -17,7 +17,7 @@ import subprocess
 import sys
 from urllib.parse import unquote_plus
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 CATEGORIES = ("phone", "email", "id")
 NAMES = {"phone": "a phone number", "email": "an email address", "id": "a document or ID number"}
 DEFAULT_LIST = os.path.join(os.path.expanduser("~"), ".claude", "pii-tripwire", "list.json")
@@ -158,6 +158,72 @@ def scan_text(data, text):
     return hits
 
 
+# ---------- common shapes, no list needed (scan --patterns) ----------
+PATTERN_NAMES = {"phone": "a phone number (international form)", "email": "an email address",
+                 "card": "a payment card number", "iban": "an IBAN", "secret": "a secret (token or key)"}
+PHONE_RE = re.compile(r"(?<![\w+])\+\d[\d ().-]{6,20}\d(?![\d])")
+EMAIL_RE = re.compile(r"(?<![\w.+-])([A-Za-z0-9._%+-]{1,64})@([A-Za-z0-9.-]+\.[A-Za-z]{2,24})(?![\w-])")
+PLACEHOLDER_DOMAIN = re.compile(r"(^|\.)(example\.(com|org|net)|test|invalid|localhost|users\.noreply\.github\.com)$",
+                                re.I)
+CARD_RE = re.compile(r"(?<![\d-])[2-6]\d{3}(?:[ -]?\d{2,4}){2,4}(?![\d-])")
+IBAN_RE = re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,3})?\b")
+SECRET_RES = [re.compile(p) for p in (
+    r"\bgh[pousr]_[A-Za-z0-9]{36}\b", r"\bgithub_pat_[A-Za-z0-9_]{60,}", r"\bsk-[A-Za-z0-9_-]{20,}",
+    r"\bxox[abprs]-[A-Za-z0-9-]{10,}", r"-----BEGIN [A-Z ]*PRIVATE KEY-----", r"\b\d{8,10}:[A-Za-z0-9_-]{35}\b",
+    r"\bAKIA[0-9A-Z]{16}\b")]
+
+
+def _luhn(digits):
+    total, odd = 0, True
+    for ch in reversed(digits):
+        d = int(ch)
+        if not odd:
+            d = d * 2 - 9 if d * 2 > 9 else d * 2
+        total, odd = total + d, not odd
+    return total % 10 == 0
+
+
+def _iban_ok(s):
+    s = s.replace(" ", "")
+    if not 15 <= len(s) <= 34:
+        return False
+    moved = s[4:] + s[:4]
+    return int("".join(str(int(c, 36)) for c in moved)) % 97 == 1
+
+
+def scan_patterns(text):
+    """[(line number, category)] for common shapes of personal data and secrets, no list needed. Strict on purpose:
+    a phone only in international form (+ and 8-15 digits), a card only with a network's first digit and a valid
+    Luhn sum, an IBAN only with valid check digits, an email not at a placeholder domain or a noreply address. Dates,
+    commit hashes, versions and message numbers do not match any of them."""
+    hits = []
+    for n, line in enumerate(text.splitlines(), 1):
+        cats = []
+        if any(r.search(line) for r in SECRET_RES):
+            cats.append("secret")
+        ibanish = [(m.start(), m.end()) for m in IBAN_RE.finditer(line)]       # digits inside an IBAN are not a card
+        for m in CARD_RE.finditer(line):
+            if any(s <= m.start() < e for s, e in ibanish):
+                continue
+            digits = re.sub(r"\D", "", m.group(0))
+            if 13 <= len(digits) <= 19 and _luhn(digits):
+                cats.append("card")
+                break
+        if any(_iban_ok(m.group(0)) for m in IBAN_RE.finditer(line)):
+            cats.append("iban")
+        for m in PHONE_RE.finditer(line):
+            if 8 <= len(re.sub(r"\D", "", m.group(0))) <= 15 and "card" not in cats:
+                cats.append("phone")
+                break
+        for m in EMAIL_RE.finditer(line):
+            local, domain = m.group(1).lower(), m.group(2).lower()
+            if not PLACEHOLDER_DOMAIN.search(domain) and not local.startswith(("noreply", "no-reply")):
+                cats.append("email")
+                break
+        hits += [(n, c) for c in cats]
+    return hits
+
+
 def _staged():
     """{path: staged content} for files added, copied or modified in the index: what the commit will hold."""
     names = subprocess.run(["git", "diff", "--cached", "--name-only", "--diff-filter=ACM", "-z"], capture_output=True,
@@ -170,11 +236,16 @@ def _staged():
 
 
 def scan(argv, list_path):
-    """scan <files...> | scan --staged. Prints path:line: category (never the value). Exit 1 on a find, 2 if no list."""
-    if not os.path.exists(list_path):
-        print("pii-tripwire: no list yet, nothing to check against (pii_tripwire.py add ...)", file=sys.stderr)
+    """scan [--patterns] <files...> | scan [--patterns] --staged. Prints path:line: category (never the value).
+    Exit 1 on a find, 2 if there is nothing to check against (no list and no --patterns) or a path was not checked."""
+    patterns = "--patterns" in argv
+    argv = [a for a in argv if a != "--patterns"]
+    has_list = os.path.exists(list_path)
+    if not has_list and not patterns:
+        print("pii-tripwire: no list yet, nothing to check against (pii_tripwire.py add ..., or scan --patterns)",
+              file=sys.stderr)
         return 2
-    data = load(list_path)
+    data = load(list_path) if has_list else None
     if argv[:1] == ["--staged"]:
         try:
             sources = _staged()
@@ -203,8 +274,12 @@ def scan(argv, list_path):
         if b"\0" in raw[:8000]:
             print(f"pii-tripwire: {path}: skipped (binary)", file=sys.stderr)
             continue
-        for n, cat in scan_text(data, raw.decode("utf-8", "replace")):
+        text = raw.decode("utf-8", "replace")
+        for n, cat in (scan_text(data, text) if data is not None else []):
             print(f"{path}:{n}: {NAMES[cat]} from your private list")
+            found += 1
+        for n, cat in (scan_patterns(text) if patterns else []):
+            print(f"{path}:{n}: {PATTERN_NAMES[cat]}")
             found += 1
     if found:
         return 1
