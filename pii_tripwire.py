@@ -17,7 +17,7 @@ import subprocess
 import sys
 from urllib.parse import unquote_plus
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 CATEGORIES = ("phone", "email", "id")
 NAMES = {"phone": "a phone number", "email": "an email address", "id": "a document or ID number"}
 DEFAULT_LIST = os.path.join(os.path.expanduser("~"), ".claude", "pii-tripwire", "list.json")
@@ -182,17 +182,23 @@ def scan(argv, list_path):
             print("pii-tripwire: not inside a git repository", file=sys.stderr)
             return 2
     else:
+        if not argv:
+            print("pii-tripwire: scan what? give files or folders, or --staged", file=sys.stderr)
+            return 2
         sources = {}
         for p in argv:
-            try:
-                with open(p, "rb") as f:
-                    sources[p] = f.read(MAX_TEXT)
-            except OSError:
-                sources[p] = None
-    found = 0
+            for path in _walk(p):
+                try:
+                    with open(path, "rb") as f:
+                        sources[path] = f.read(MAX_TEXT)
+                except OSError:
+                    sources[path] = None
+    found = unchecked = 0
     for path, raw in sources.items():
         if raw is None:
-            print(f"pii-tripwire: {path}: skipped (cannot read it)", file=sys.stderr)
+            # a path that was not checked is never a pass: a typo or an unexpanded glob must not read as "clean"
+            print(f"pii-tripwire: {path}: NOT CHECKED (cannot read it)", file=sys.stderr)
+            unchecked += 1
             continue
         if b"\0" in raw[:8000]:
             print(f"pii-tripwire: {path}: skipped (binary)", file=sys.stderr)
@@ -200,7 +206,23 @@ def scan(argv, list_path):
         for n, cat in scan_text(data, raw.decode("utf-8", "replace")):
             print(f"{path}:{n}: {NAMES[cat]} from your private list")
             found += 1
-    return 1 if found else 0
+    if found:
+        return 1
+    return 2 if unchecked else 0
+
+
+SKIP_DIRS = {".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv", "venv"}
+
+
+def _walk(p):
+    """A file is itself; a folder is every file under it (version-control and dependency folders left out)."""
+    if not os.path.isdir(p):
+        yield p
+        return
+    for root, dirs, files in os.walk(p):
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
+        for name in sorted(files):
+            yield os.path.join(root, name)
 
 
 def is_outbound(tool, tool_input):

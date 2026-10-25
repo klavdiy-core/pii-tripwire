@@ -54,7 +54,7 @@ python pii_tripwire.py scan notes.md docs/*.md   # given files
 python pii_tripwire.py scan --staged             # exactly what the next commit will hold (the index, not the working copy)
 ```
 
-Each find is printed as `path:line: a phone number from your private list` — the category, never the value. Exit 1 on a find, 0 when clean, 2 when there is no list yet (nothing to check against). Binary and unreadable files are named as skipped. As a git hook: `python /path/to/pii_tripwire.py scan --staged` in `.git/hooks/pre-commit`.
+Each find is printed as `path:line: a phone number from your private list` — the category, never the value. A folder is scanned file by file (`.git`, `node_modules` and virtualenvs left out). Exit 1 on a find, 0 when clean, 2 when there is no list yet, no paths were given, or any path could not be read (a typo, an unexpanded glob): a path that was not checked is never a pass. Binary and unreadable files are named as skipped. As a git hook: `python /path/to/pii_tripwire.py scan --staged` in `.git/hooks/pre-commit`.
 
 ## What it does not catch (said plainly)
 
@@ -74,7 +74,7 @@ It is a tripwire for the common accident, not a data-loss-prevention system.
 python -m unittest discover -s tests
 ```
 
-A phone in another notation, in national form, URL-encoded; emails in any case and percent-encoded; document numbers with and without separators; the same call without the data passing; local tools and local shell commands passing; `git push`, `gh` and `Invoke-WebRequest` checked; short numbers not tripping it; no plain values in the list; separate salts per list; a broken list asking; no list doing nothing; the deny reason never holding the value; no false alarm inside hashes, glued words or longer numbers; a piped `add`; `scan` catching three spellings of a phone in a file but not a commit hash or an order number, never printing the value, checking the staged copy rather than the working one, skipping binary, missing and deleted files. Every check here was broken on purpose to see a test go red. All values in the tests are fictional.
+A phone in another notation, in national form, URL-encoded; emails in any case and percent-encoded; document numbers with and without separators; the same call without the data passing; local tools and local shell commands passing; `git push`, `gh` and `Invoke-WebRequest` checked; short numbers not tripping it; no plain values in the list; separate salts per list; a broken list asking; no list doing nothing; the deny reason never holding the value; no false alarm inside hashes, glued words or numbers longer than a phone can be (over 15 digits; a shorter run that ends in your digits is flagged, since it may be your number with another prefix); a piped `add`; `scan` catching three spellings of a phone in a file but not a commit hash or an order number, never printing the value, checking the staged copy rather than the working one, skipping binary, missing and deleted files. Every check here was broken on purpose to see a test go red. All values in the tests are fictional.
 
 ## License
 
