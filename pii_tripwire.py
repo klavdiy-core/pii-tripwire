@@ -17,11 +17,13 @@ import subprocess
 import sys
 from urllib.parse import unquote_plus
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 CATEGORIES = ("phone", "email", "id")
 NAMES = {"phone": "a phone number", "email": "an email address", "id": "a document or ID number"}
 DEFAULT_LIST = os.path.join(os.path.expanduser("~"), ".claude", "pii-tripwire", "list.json")
-MAX_TEXT = 2_000_000
+MAX_TEXT = 2_000_000          # one block or window; the WHOLE text is still checked, block by block
+WINDOW_OVERLAP = 512          # longer than any value (an e-mail is at most 254 characters)
+MAX_LINE = 8_000_000          # a single line longer than this is not checked: said, exit 2
 PHONE_TAIL = 9                       # national and international forms share their last 9 digits
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 PHONE_RUN = re.compile(r"\+?\d[\d \t().\-/]{6,}\d")
@@ -117,8 +119,14 @@ def _strings(x):
 
 def find(data, text):
     """Categories from the list that occur in text. Values are compared as salted hashes only."""
+    if len(text) > MAX_TEXT:
+        # windows over the whole text, overlapping by more than any value can be long: text[:MAX_TEXT] waved through a
+        # number placed after 2 MB as if it had been checked (external review, 25.10)
+        hit = set()
+        for s in range(0, len(text), MAX_TEXT):
+            hit |= find(data, text[max(0, s - WINDOW_OVERLAP):s + MAX_TEXT])
+        return hit
     salt, entries, aux = data["salt"], data["entries"], data.get("aux", {})
-    text = text[:MAX_TEXT]
     texts = [text, unquote_plus(text)]
     hit = set()
     for t in texts:
@@ -260,34 +268,67 @@ def scan(argv, list_path):
         if not argv:
             print("pii-tripwire: scan what? give files or folders, or --staged", file=sys.stderr)
             return 2
-        sources = {}
-        for p in argv:
-            for path in _walk(p):
-                try:
-                    with open(path, "rb") as f:
-                        sources[path] = f.read(MAX_TEXT)
-                except OSError:
-                    sources[path] = None
+        sources = {p: _FROM_DISK for a in argv for p in _walk(a)}      # read block by block below
     found = unchecked = 0
-    for path, raw in sources.items():
-        if raw is None:
+    for path, staged in sources.items():
+        try:
+            if staged is None:                                          # a staged blob git could not show
+                raise OSError(path)
+            blocks = _blocks(path) if staged is _FROM_DISK else iter([(0, staged, True)])
+            for first_line, raw, first in blocks:
+                if first and b"\0" in raw[:8000]:
+                    print(f"pii-tripwire: {path}: skipped (binary)", file=sys.stderr)
+                    break
+                text = raw.decode("utf-8", "replace")
+                for n, cat in (scan_text(data, text) if data is not None else []):
+                    print(f"{path}:{first_line + n}: {NAMES[cat]} from your private list")
+                    found += 1
+                for n, cat in (scan_patterns(text) if patterns else []):
+                    print(f"{path}:{first_line + n}: {PATTERN_NAMES[cat]}")
+                    found += 1
+        except OSError:
             # a path that was not checked is never a pass: a typo or an unexpanded glob must not read as "clean"
             print(f"pii-tripwire: {path}: NOT CHECKED (cannot read it)", file=sys.stderr)
             unchecked += 1
-            continue
-        if b"\0" in raw[:8000]:
-            print(f"pii-tripwire: {path}: skipped (binary)", file=sys.stderr)
-            continue
-        text = raw.decode("utf-8", "replace")
-        for n, cat in (scan_text(data, text) if data is not None else []):
-            print(f"{path}:{n}: {NAMES[cat]} from your private list")
-            found += 1
-        for n, cat in (scan_patterns(text) if patterns else []):
-            print(f"{path}:{n}: {PATTERN_NAMES[cat]}")
-            found += 1
+        except _LineTooLong as e:
+            print(f"pii-tripwire: {path}: INCOMPLETE (line {e.args[0]} is over {MAX_LINE:,} bytes; checked up to it)",
+                  file=sys.stderr)
+            unchecked += 1
     if found:
         return 1
     return 2 if unchecked else 0
+
+
+class _LineTooLong(Exception):
+    pass
+
+
+_FROM_DISK = object()          # a scan source read from the file itself (staged sources carry their bytes)
+
+
+def _blocks(path):
+    """(lines before this block, bytes, first?) over the WHOLE file, about MAX_TEXT at a time, cut only at line ends so
+    no value is split and the line numbers stay true. f.read(MAX_TEXT) used to stop at 2 MB and the rest was reported
+    clean (external review, 25.10)."""
+    with open(path, "rb") as f:
+        carry, before, first = b"", 0, True
+        while True:
+            chunk = f.read(MAX_TEXT)
+            buf = carry + chunk
+            if not chunk:
+                if buf:
+                    yield before, buf, first
+                return
+            cut = buf.rfind(b"\n") + 1
+            if cut == 0:
+                if len(buf) > MAX_LINE:
+                    raise _LineTooLong(before + 1)
+                carry = buf
+                continue
+            yield before, buf[:cut], first
+            first = False
+            before += buf[:cut].count(b"\n")
+            carry = buf[cut:]
 
 
 SKIP_DIRS = {".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv", "venv"}
