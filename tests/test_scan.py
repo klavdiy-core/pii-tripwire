@@ -61,14 +61,33 @@ class Scan(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("no list", r.stderr.lower())
 
-    def test_binary_and_missing_files_are_reported_not_crashed_on(self):
+    def test_binary_files_are_skipped_by_name(self):
         b = os.path.join(self.tmp.name, "img.png")
         with open(b, "wb") as fh:
             fh.write(b"\x89PNG\x00\xff\xfe" * 10)
-        r = self.cli(b, os.path.join(self.tmp.name, "gone.md"))
+        r = self.cli(b)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("img.png: skipped (binary)", r.stderr)
-        self.assertIn("gone.md: skipped (cannot read it)", r.stderr)
+
+    def test_a_path_that_was_not_checked_is_never_a_pass(self):
+        # an outside re-grade (25.10): a typo, an unexpanded glob or no paths at all exited 0 - "clean" with nothing checked
+        for args in ([os.path.join(self.tmp.name, "gone.md")], [os.path.join(self.tmp.name, "*.md")], []):
+            r = self.cli(*args)
+            self.assertEqual(r.returncode, 2, (args, r.stdout, r.stderr))
+            self.assertTrue(r.stderr.strip(), args)
+
+    def test_a_folder_is_scanned_inside_and_git_is_left_alone(self):
+        d = os.path.join(self.tmp.name, "proj")
+        os.makedirs(os.path.join(d, "docs"))
+        os.makedirs(os.path.join(d, ".git"))
+        with open(os.path.join(d, "docs", "a.md"), "w", encoding="utf-8") as fh:
+            fh.write("x\nphone 0501234567\n")
+        with open(os.path.join(d, ".git", "COMMIT_EDITMSG"), "w", encoding="utf-8") as fh:
+            fh.write("0501234567\n")
+        r = self.cli(d)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("a.md:2: a phone number", r.stdout)
+        self.assertNotIn("COMMIT_EDITMSG", r.stdout)
 
     def test_a_deleted_file_in_the_commit_is_not_reported(self):
         repo = os.path.join(self.tmp.name, "repo2")
