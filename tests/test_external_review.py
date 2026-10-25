@@ -41,6 +41,15 @@ class PastTwoMegabytes(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertIn("edge.txt:999999:", r.stdout)
 
+    def test_line_numbers_count_newlines_only_across_blocks(self):
+        # Tsaplya's second review: «p\x0cq» lines (a form feed inside each) put the number at :900001, not :700001
+        f = os.path.join(self.tmp.name, "ff.txt")
+        with open(f, "w", encoding="utf-8", newline="") as fh:
+            fh.write("p\x0cq\n" * 700_000 + PHONE + "\n")
+        r = subprocess.run([sys.executable, os.path.abspath(SCRIPT), "scan", f], capture_output=True, text=True,
+                           encoding="utf-8", env=dict(os.environ, PII_TRIPWIRE_LIST=self.list))
+        self.assertIn("ff.txt:700001:", r.stdout)
+
     def test_one_endless_line_is_said_incomplete_not_clean(self):
         f = os.path.join(self.tmp.name, "oneline.txt")
         with open(f, "w", encoding="utf-8") as fh:

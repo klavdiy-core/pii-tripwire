@@ -156,10 +156,16 @@ def find(data, text):
     return hit
 
 
+def _lines(text):
+    """Lines as an editor numbers them: split at \\n only, a trailing \\r dropped. splitlines() also splits at form
+    feeds, \\x85 and friends, so a number after 2 MB of «p\\fq» lines was reported at :900001, not :700001 (Tsaplya)."""
+    return [x[:-1] if x.endswith("\r") else x for x in text.split("\n")]
+
+
 def scan_text(data, text):
     """[(line number, category)] for every line holding a value from the list (same matching as the hook)."""
     hits = []
-    for n, line in enumerate(text.splitlines(), 1):
+    for n, line in enumerate(_lines(text), 1):
         for cat in CATEGORIES:
             if cat in find(data, line):
                 hits.append((n, cat))
@@ -207,7 +213,7 @@ def scan_patterns(text):
     Luhn sum, an IBAN only with valid check digits, an email not at a placeholder domain or a noreply address. Dates,
     commit hashes, versions and message numbers do not match any of them."""
     hits = []
-    for n, line in enumerate(text.splitlines(), 1):
+    for n, line in enumerate(_lines(text), 1):
         cats = []
         if any(r.search(line) for r in SECRET_RES):
             cats.append("secret")
