@@ -78,7 +78,7 @@ is not caught by the patterns; put your own in the list for that.
 - **One line longer than 8 MB** in a scanned file is not checked: the file is reported `INCOMPLETE` and the scan exits 2,
   never "clean". Files of any size are otherwise read whole, 2 MB at a time, and a hook call of any size is checked
   in overlapping windows. Before 0.3.2 everything past the first 2 MB was skipped and the result still said clean —
-  found by an external review, fixed in <commit>.
+  found by an external review, fixed in 790264d.
 
 It is a tripwire for the common accident, not a data-loss-prevention system.
 
