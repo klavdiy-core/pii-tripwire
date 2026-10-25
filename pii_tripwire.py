@@ -13,10 +13,11 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from urllib.parse import unquote_plus
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 CATEGORIES = ("phone", "email", "id")
 NAMES = {"phone": "a phone number", "email": "an email address", "id": "a document or ID number"}
 DEFAULT_LIST = os.path.join(os.path.expanduser("~"), ".claude", "pii-tripwire", "list.json")
@@ -147,6 +148,61 @@ def find(data, text):
     return hit
 
 
+def scan_text(data, text):
+    """[(line number, category)] for every line holding a value from the list (same matching as the hook)."""
+    hits = []
+    for n, line in enumerate(text.splitlines(), 1):
+        for cat in CATEGORIES:
+            if cat in find(data, line):
+                hits.append((n, cat))
+    return hits
+
+
+def _staged():
+    """{path: staged content} for files added, copied or modified in the index: what the commit will hold."""
+    names = subprocess.run(["git", "diff", "--cached", "--name-only", "--diff-filter=ACM", "-z"], capture_output=True,
+                           check=True).stdout.decode("utf-8", "replace").split("\0")
+    out = {}
+    for name in filter(None, names):
+        blob = subprocess.run(["git", "show", f":{name}"], capture_output=True)
+        out[name] = blob.stdout if blob.returncode == 0 else None
+    return out
+
+
+def scan(argv, list_path):
+    """scan <files...> | scan --staged. Prints path:line: category (never the value). Exit 1 on a find, 2 if no list."""
+    if not os.path.exists(list_path):
+        print("pii-tripwire: no list yet, nothing to check against (pii_tripwire.py add ...)", file=sys.stderr)
+        return 2
+    data = load(list_path)
+    if argv[:1] == ["--staged"]:
+        try:
+            sources = _staged()
+        except (OSError, subprocess.CalledProcessError):
+            print("pii-tripwire: not inside a git repository", file=sys.stderr)
+            return 2
+    else:
+        sources = {}
+        for p in argv:
+            try:
+                with open(p, "rb") as f:
+                    sources[p] = f.read(MAX_TEXT)
+            except OSError:
+                sources[p] = None
+    found = 0
+    for path, raw in sources.items():
+        if raw is None:
+            print(f"pii-tripwire: {path}: skipped (cannot read it)", file=sys.stderr)
+            continue
+        if b"\0" in raw[:8000]:
+            print(f"pii-tripwire: {path}: skipped (binary)", file=sys.stderr)
+            continue
+        for n, cat in scan_text(data, raw.decode("utf-8", "replace")):
+            print(f"{path}:{n}: {NAMES[cat]} from your private list")
+            found += 1
+    return 1 if found else 0
+
+
 def is_outbound(tool, tool_input):
     if tool in OUTBOUND_TOOLS or tool.startswith("mcp__"):
         return True
@@ -214,8 +270,11 @@ def main(argv=None):
     path = os.environ.get("PII_TRIPWIRE_LIST") or DEFAULT_LIST
     if cmd in ("-h", "--help"):
         print(__doc__ + "\nusage: pii_tripwire.py add phone|email|id   (asks for the value, so it stays out of your "
-              "shell history)\n       pii_tripwire.py list | install [SETTINGS] | hook")
+              "shell history)\n       pii_tripwire.py list | install [SETTINGS] | hook"
+              "\n       pii_tripwire.py scan <files...> | scan --staged   (before a commit; exit 1 on a find)")
         return 0
+    if cmd == "scan":
+        return scan(argv[1:], path)
     if cmd == "add":
         if len(argv) < 2 or argv[1] not in CATEGORIES:
             print("usage: pii_tripwire.py add phone|email|id", file=sys.stderr)

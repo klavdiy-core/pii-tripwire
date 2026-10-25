@@ -45,10 +45,21 @@ python pii_tripwire.py install          # adds the hook to ~/.claude/settings.js
 
 The list lives in `~/.claude/pii-tripwire/list.json` (or `PII_TRIPWIRE_LIST`).
 
+## Before a commit: scan the files
+
+The hook sees commands, not files. To check the files themselves, against the same list and with the same matching:
+
+```sh
+python pii_tripwire.py scan notes.md docs/*.md   # given files
+python pii_tripwire.py scan --staged             # exactly what the next commit will hold (the index, not the working copy)
+```
+
+Each find is printed as `path:line: a phone number from your private list` — the category, never the value. Exit 1 on a find, 0 when clean, 2 when there is no list yet (nothing to check against). Binary and unreadable files are named as skipped. As a git hook: `python /path/to/pii_tripwire.py scan --staged` in `.git/hooks/pre-commit`.
+
 ## What it does not catch (said plainly)
 
 - **Names and street addresses.** Declension, transliteration and spelling make them unmatchable without many false alarms. v1 does structured identifiers only.
-- **Data that leaves inside a file.** `curl -F @contacts.csv`, or `git push` of a commit whose *files* contain the number: the hook sees the command, not the file.
+- **Data that leaves inside a file.** `curl -F @contacts.csv`, or `git push` of a commit whose *files* contain the number: the hook sees the command, not the file. For commits, run `scan --staged` before committing (above).
 - **Encoded data.** Base64, hex, or any other re-encoding of the value.
 - **The chat itself.** It guards tool calls. It cannot stop the model from writing the value in its answer to you.
 - **Network tools it doesn't know by name.** A custom script that uploads things looks like a local command.
@@ -63,7 +74,7 @@ It is a tripwire for the common accident, not a data-loss-prevention system.
 python -m unittest discover -s tests
 ```
 
-A phone in another notation, in national form, URL-encoded; emails in any case and percent-encoded; document numbers with and without separators; the same call without the data passing; local tools and local shell commands passing; `git push`, `gh` and `Invoke-WebRequest` checked; short numbers not tripping it; no plain values in the list; separate salts per list; a broken list asking; no list doing nothing; the deny reason never holding the value; no false alarm inside hashes, glued words or longer numbers; a piped `add`. Every check here was broken on purpose to see a test go red. All values in the tests are fictional.
+A phone in another notation, in national form, URL-encoded; emails in any case and percent-encoded; document numbers with and without separators; the same call without the data passing; local tools and local shell commands passing; `git push`, `gh` and `Invoke-WebRequest` checked; short numbers not tripping it; no plain values in the list; separate salts per list; a broken list asking; no list doing nothing; the deny reason never holding the value; no false alarm inside hashes, glued words or longer numbers; a piped `add`; `scan` catching three spellings of a phone in a file but not a commit hash or an order number, never printing the value, checking the staged copy rather than the working one, skipping binary, missing and deleted files. Every check here was broken on purpose to see a test go red. All values in the tests are fictional.
 
 ## License
 
