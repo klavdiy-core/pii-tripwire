@@ -141,6 +141,18 @@ class Storage(Base):
             f.write("{oops")
         self.assertEqual(self.decide("WebSearch", {"query": "anything"})[0], "ask")
 
+    def test_an_unreadable_hook_input_asks_when_there_is_a_list(self):
+        # an outside re-grade (25.10): a payload that was not JSON was silently allowed (fail-open)
+        for raw in ("{not json", "[1, 2]", '"just a string"'):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(pt.run_hook(raw, list_path=self.list), 0)
+            self.assertEqual(json.loads(out.getvalue())["hookSpecificOutput"]["permissionDecision"], "ask", raw)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            pt.run_hook("{not json", list_path=os.path.join(self.tmp.name, "missing.json"))
+        self.assertEqual(out.getvalue(), "")                                    # no list: still nothing to guard
+
     def test_no_list_means_nothing_to_guard(self):
         out = io.StringIO()
         with redirect_stdout(out):
