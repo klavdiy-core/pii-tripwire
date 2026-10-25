@@ -75,6 +75,10 @@ is not caught by the patterns; put your own in the list for that.
 - **Network tools it doesn't know by name.** A custom script that uploads things looks like a local command.
 - **A hand-off to a sub-agent** (`Task`) is not checked itself; the sub-agent's own outbound calls go through the same hook.
 - **On Windows** file mode 600 does nothing; the list is still hashes only.
+- **One line longer than 8 MB** in a scanned file is not checked: the file is reported `INCOMPLETE` and the scan exits 2,
+  never "clean". Files of any size are otherwise read whole, 2 MB at a time, and a hook call of any size is checked
+  in overlapping windows. Before 0.3.2 everything past the first 2 MB was skipped and the result still said clean —
+  found by an external review, fixed in <commit>.
 
 It is a tripwire for the common accident, not a data-loss-prevention system.
 
