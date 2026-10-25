@@ -61,7 +61,9 @@ without your list: a phone in international form (`+` and 8–15 digits), an ema
 network's first digit and a valid Luhn sum), an IBAN (valid check digits), and the shapes of secrets: GitHub tokens
 (`ghp_…`, `github_pat_…`), `sk-…` API keys, Slack `xox…-` tokens, Telegram bot tokens, AWS access key ids and
 `-----BEGIN … PRIVATE KEY-----`. Each find says what it is, never the value. Dates, commit hashes, versions, message
-numbers, a public key, `…@example.com` and `noreply@…` addresses do not match. A national phone number without `+`
+numbers, a public key, digits inside a longer token (a hex hash in a lockfile URL), digit groups with mixed
+separators (`20261025 2026-10-25`), `noreply@…` addresses and placeholder domains (any `example` domain such as
+`example.com` or `example.co.uk`, and `.test`, `.invalid`, `localhost`) do not match. A national phone number without `+`
 is not caught by the patterns; put your own in the list for that.
 
 ## What it does not catch (said plainly)

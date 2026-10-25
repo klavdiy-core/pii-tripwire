@@ -17,7 +17,7 @@ import subprocess
 import sys
 from urllib.parse import unquote_plus
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 CATEGORIES = ("phone", "email", "id")
 NAMES = {"phone": "a phone number", "email": "an email address", "id": "a document or ID number"}
 DEFAULT_LIST = os.path.join(os.path.expanduser("~"), ".claude", "pii-tripwire", "list.json")
@@ -163,12 +163,14 @@ PATTERN_NAMES = {"phone": "a phone number (international form)", "email": "an em
                  "card": "a payment card number", "iban": "an IBAN", "secret": "a secret (token or key)"}
 PHONE_RE = re.compile(r"(?<![\w+])\+\d[\d ().-]{6,20}\d(?![\d])")
 EMAIL_RE = re.compile(r"(?<![\w.+-])([A-Za-z0-9._%+-]{1,64})@([A-Za-z0-9.-]+\.[A-Za-z]{2,24})(?![\w-])")
-PLACEHOLDER_DOMAIN = re.compile(r"(^|\.)(example\.(com|org|net)|test|invalid|localhost|users\.noreply\.github\.com)$",
+# placeholder domains (RFC 2606/6761 and their everyday variants): any "example" label, .test, .invalid, localhost
+PLACEHOLDER_DOMAIN = re.compile(r"(^|\.)(example(\.[a-z]{2,})*|test|invalid|localhost|users\.noreply\.github\.com)$",
                                 re.I)
-CARD_RE = re.compile(r"(?<![\d-])[2-6]\d{3}(?:[ -]?\d{2,4}){2,4}(?![\d-])")
+# a card stands alone: not inside a longer letters-and-digits token (hex hashes in lockfile URLs used to match)
+CARD_RE = re.compile(r"(?<![\w-])[2-6]\d{3}(?:[ -]?\d{2,4}){2,4}(?![\w-])")
 IBAN_RE = re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,3})?\b")
 SECRET_RES = [re.compile(p) for p in (
-    r"\bgh[pousr]_[A-Za-z0-9]{36}\b", r"\bgithub_pat_[A-Za-z0-9_]{60,}", r"\bsk-[A-Za-z0-9_-]{20,}",
+    r"\bgh[pousr]_[A-Za-z0-9]{36,}\b", r"\bgithub_pat_[A-Za-z0-9_]{60,}", r"\bsk-[A-Za-z0-9_-]{20,}",
     r"\bxox[abprs]-[A-Za-z0-9-]{10,}", r"-----BEGIN [A-Z ]*PRIVATE KEY-----", r"\b\d{8,10}:[A-Za-z0-9_-]{35}\b",
     r"\bAKIA[0-9A-Z]{16}\b")]
 
@@ -206,6 +208,8 @@ def scan_patterns(text):
             if any(s <= m.start() < e for s, e in ibanish):
                 continue
             digits = re.sub(r"\D", "", m.group(0))
+            if len(set(re.findall(r"[ -]", m.group(0)))) > 1:
+                continue                       # one kind of separator in a card number ("20261025 2026-10-25" is two)
             if 13 <= len(digits) <= 19 and _luhn(digits):
                 cats.append("card")
                 break
@@ -317,14 +321,18 @@ def _decide(decision, reason):
 
 
 def run_hook(stdin_text, list_path=None):
+    path = list_path or os.environ.get("PII_TRIPWIRE_LIST") or DEFAULT_LIST
     try:
         event = json.loads(stdin_text or "{}")
         tool, tool_input = event.get("tool_name", ""), event.get("tool_input") or {}
-    except ValueError:
+    except (ValueError, AttributeError):
+        # an input it cannot read is not a pass: with a list to guard, the call is asked about (it used to be allowed)
+        if os.path.exists(path):
+            return _decide("ask", "the hook input could not be read, so this call was not checked. "
+                                  "Look at it yourself before allowing it.")
         return 0
     if not is_outbound(tool, tool_input):
         return 0
-    path = list_path or os.environ.get("PII_TRIPWIRE_LIST") or DEFAULT_LIST
     if not os.path.exists(path):
         return 0
     try:

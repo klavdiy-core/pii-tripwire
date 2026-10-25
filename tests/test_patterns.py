@@ -38,6 +38,24 @@ class Patterns(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertEqual(self.hits(line), [])
 
+    def test_lockfile_hashes_and_date_runs_are_not_cards(self):
+        # an outside re-grade (25.10) on a real repository: four 'cards' in uv.lock, all digits inside hex hashes
+        for line in ('url = "https://files.pythonhosted.org/packages/4a/41/4111111111111111f3b2/flask-3.0.tar.gz"',
+                     'hash = "sha256:5d8c4111111111111111a2b9e"', "20261025 2026-10-25 v1.2.3 1.2.3.4",
+                     "4111 1111-1111 1111 mixed separators"):
+            with self.subTest(line=line):
+                self.assertEqual(self.hits(line), [])
+        self.assertEqual(self.hits("4111-1111-1111-1111"), ["card"])                 # uniform separators: still a card
+
+    def test_every_example_domain_is_a_placeholder(self):
+        for line in ('send(to="someone@example.example")', "a@example.co.uk", "b@sub.example.org", "c@host.test"):
+            with self.subTest(line=line):
+                self.assertEqual(self.hits(line), [])
+        self.assertEqual(self.hits("maintainers: team@palletsprojects.com"), ["email"])   # a real domain still counts
+
+    def test_a_longer_github_token_is_caught(self):
+        self.assertEqual(self.hits("token ghp_" + "A" * 38), ["secret"])
+
     def test_cli_prints_category_not_value_and_needs_no_list(self):
         with tempfile.TemporaryDirectory() as d:
             f = os.path.join(d, "notes.md")
