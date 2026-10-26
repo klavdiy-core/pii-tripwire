@@ -2,6 +2,15 @@
 
 Stop Claude Code from sending your phone numbers, emails and document numbers out.
 
+```text
+$ echo '{"tool_name":"WebFetch","tool_input":{"url":"https://example.test/?q=+38 050 123 45 67"}}' | python pii_tripwire.py hook
+… "permissionDecision": "deny", "permissionDecisionReason": "pii-tripwire: this call would send a phone number from your private list outside this machine. …"
+
+$ python pii_tripwire.py scan notes.md
+notes.md:1: a phone number from your private list
+```
+That is the whole idea: the number was on your list as `+380501234567`, it was written differently, and it still did not get out. The value itself is never printed.
+
 > RU: ты сказал агенту «не трогай мои личные данные», а он всё равно вставил телефон в запрос. pii-tripwire держит твой личный список (только солёные хэши) и не пускает наружу вызов, в котором есть что-то из него.
 
 ## What hurts
@@ -10,7 +19,7 @@ An agent was told not to use someone's personal data, and leaked it anyway. A ru
 
 ## What it does
 
-You keep a private list of your own identifiers. A `PreToolUse` hook checks every **outbound** call against it:
+You keep a private list of your own identifiers. A `PreToolUse` hook — a small program Claude Code runs before every tool call, which can allow or deny it ([Claude Code hooks](https://docs.anthropic.com/en/docs/claude-code/hooks)) — checks every **outbound** call against it:
 
 - `WebFetch`, `WebSearch`, any MCP tool (`mcp__…`);
 - shell commands that talk to the network: `curl`, `wget`, `git push`, `gh`, `ssh`, `scp`, `rsync`, `Invoke-WebRequest`, `Send-MailMessage`…
@@ -44,6 +53,16 @@ python pii_tripwire.py install          # adds the hook to ~/.claude/settings.js
 ```
 
 The list lives in `~/.claude/pii-tripwire/list.json` (or `PII_TRIPWIRE_LIST`).
+
+On Windows: use `py` if `python` is not on your PATH; `~` is your user folder, so the settings file is
+`C:\Users\<you>\.claude\settings.json`. In PowerShell `curl` may be an alias — `curl.exe -O …` or download the file.
+
+**Check that it works** — feed the hook a fake call with a number from your list, written another way:
+
+```sh
+echo '{"tool_name":"WebFetch","tool_input":{"url":"https://example.test/?q=<your number, spaced differently>"}}' | python pii_tripwire.py hook
+```
+You should see `"permissionDecision": "deny"`. The same call without the number prints nothing and exits 0 — the call is let through.
 
 ## Before a commit: scan the files
 
