@@ -93,6 +93,22 @@ separators (`20261025 2026-10-25`), `noreply@…` addresses and placeholder doma
 `example.com` or `example.co.uk`, and `.test`, `.invalid`, `localhost`) do not match. A national phone number without `+`
 is not caught by the patterns; put your own in the list for that.
 
+## Internal paths in a public repo: `--roots`
+
+Your own folder names leak too: a test written in a private setup carries `C:\\Work Notes\\audit.json` into a public
+repo. List the roots that must never appear, one per line (`#` for comments), and scan with them:
+
+```sh
+python pii_tripwire.py scan --roots ~/.config/my-roots.txt --staged      # e.g. in .git/hooks/pre-commit
+```
+
+A root matches inside any path, in any case and with either slash, including the doubled backslashes of a path
+written in source code; `C:\Notes` does not match `C:\Notesbook`. A find is printed as
+`file:line: an internal path from your roots list` - never the root itself. A roots file that cannot be read as UTF-8
+(UTF-16 from PowerShell 5, for one) or holds no roots is exit 2, not a pass; a UTF-8 BOM is fine.
+Keep the roots file **outside** the repo you scan: unlike the identifier list it is plain text (a root has to match
+inside longer paths, so it cannot be hashed), so it stays private by where it lives.
+
 ## Next to the secret scanners
 
 For secrets in your code, use a real secret scanner — they are far more thorough than this. pii-tripwire is for a
