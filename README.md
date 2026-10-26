@@ -54,6 +54,11 @@ python pii_tripwire.py install          # adds the hook to ~/.claude/settings.js
 
 The list lives in `~/.claude/pii-tripwire/list.json` (or `PII_TRIPWIRE_LIST`).
 
+`install` writes the full path of the Python that ran it into the hook, so the hook starts even where a bare `python`
+is not on PATH. Moved the file or changed Python? Run `install` again — it repairs its own entry instead of adding a
+second one. (Before 0.3.3 the hook said just `python`: on a Windows machine with only the `py` launcher it could not
+start, and a hook that cannot start does not block anything.)
+
 On Windows: use `py` if `python` is not on your PATH; `~` is your user folder, so the settings file is
 `C:\Users\<you>\.claude\settings.json`. In PowerShell `curl` may be an alias — `curl.exe -O …` or download the file.
 

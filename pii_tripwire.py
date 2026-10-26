@@ -17,7 +17,7 @@ import subprocess
 import sys
 from urllib.parse import unquote_plus
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 CATEGORIES = ("phone", "email", "id")
 NAMES = {"phone": "a phone number", "email": "an email address", "id": "a document or ID number"}
 DEFAULT_LIST = os.path.join(os.path.expanduser("~"), ".claude", "pii-tripwire", "list.json")
@@ -400,16 +400,23 @@ def run_hook(stdin_text, list_path=None):
 
 def install(settings_path, script=None):
     script = (script or os.path.abspath(__file__)).replace("\\", "/")
-    py = "python" if os.name == "nt" else "python3"
+    # the interpreter that runs install, by full path: a bare `python` is often not on PATH on Windows (only `py`),
+    # and a hook that cannot start does not block - the tripwire would be silently off
+    py = '"' + os.path.abspath(sys.executable).replace("\\", "/") + '"'
     data = {}
     if os.path.exists(settings_path):
         with open(settings_path, encoding="utf-8") as f:
             data = json.load(f)
         shutil.copy2(settings_path, settings_path + ".bak")
     entries = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
-    if not any("pii_tripwire.py" in c.get("command", "") for h in entries for c in h.get("hooks", [])):
+    command = f'{py} "{script}" hook'
+    ours = [c for h in entries for c in h.get("hooks", []) if "pii_tripwire.py" in c.get("command", "")]
+    if ours:
+        for c in ours:                       # a reinstall repairs an old entry (bare `python`, a moved script)
+            c["command"] = command
+    else:
         entries.append({"matcher": "^(WebFetch|WebSearch|Bash|PowerShell)$|^mcp__",
-                        "hooks": [{"type": "command", "command": f'{py} "{script}" hook'}]})
+                        "hooks": [{"type": "command", "command": command}]})
     os.makedirs(os.path.dirname(os.path.abspath(settings_path)), exist_ok=True)
     with open(settings_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
