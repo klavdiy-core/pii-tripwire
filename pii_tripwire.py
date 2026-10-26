@@ -407,10 +407,20 @@ def install(settings_path, script=None):
     if os.path.exists(settings_path):
         with open(settings_path, encoding="utf-8") as f:
             data = json.load(f)
+    hooks = data.get("hooks", {}) if isinstance(data, dict) else None
+    pre = hooks.get("PreToolUse", []) if isinstance(hooks, dict) else None
+    if not isinstance(pre, list) or not all(isinstance(h, dict) and isinstance(h.get("hooks", []), list) for h in pre):
+        raise ValueError(f"{settings_path} has an unexpected shape (hooks.PreToolUse is not a list of entries); "
+                         "not touched")
+    # the backup is made once, before pii-tripwire ever wrote here: later reinstalls must not replace the user's
+    # original with a copy that already holds our hook
+    if os.path.exists(settings_path) and not os.path.exists(settings_path + ".bak"):
         shutil.copy2(settings_path, settings_path + ".bak")
     entries = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
     command = f'{py} "{script}" hook'
-    ours = [c for h in entries for c in h.get("hooks", []) if "pii_tripwire.py" in c.get("command", "")]
+    # ours = a command of the shape install writes (old or new); a foreign hook that merely names the file is left alone
+    ours = [c for h in entries for c in h.get("hooks", [])
+            if re.search(r'pii_tripwire\.py"?\s+hook\s*$', str(c.get("command", "")))]
     if ours:
         for c in ours:                       # a reinstall repairs an old entry (bare `python`, a moved script)
             c["command"] = command
@@ -461,7 +471,12 @@ def main(argv=None):
         return run_hook(sys.stdin.buffer.read().decode("utf-8", "replace"))
     if cmd == "install":
         target = argv[1] if len(argv) > 1 else os.path.join(os.path.expanduser("~"), ".claude", "settings.json")
-        print(f"installed into {install(target)} (a .bak was left next to it)")
+        try:
+            done = install(target)
+        except ValueError as e:                      # an unexpected shape, or broken JSON: nothing was written
+            print(f"not installed: {e}", file=sys.stderr)
+            return 2
+        print(f"installed into {done} (your original, from before the first install, is kept as {done}.bak)")
         return 0
     print(f"unknown command {cmd!r}", file=sys.stderr)
     return 2

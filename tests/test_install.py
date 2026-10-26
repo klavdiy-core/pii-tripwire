@@ -61,6 +61,41 @@ class Install(unittest.TestCase):
         exe = shlex.split(cmd, posix=True)[0]
         self.assertEqual(os.path.normcase(os.path.abspath(exe)), os.path.normcase(os.path.abspath(sys.executable)))
 
+    # Tsaplya's review of 1cbb895 (M-1060): two defects in the reinstall path
+    def test_a_foreign_hook_that_mentions_the_file_is_not_rewritten(self):
+        os.makedirs(os.path.dirname(self.settings))
+        foreign = "bash my_audit.sh --watch pii_tripwire.py"
+        with open(self.settings, "w", encoding="utf-8") as f:
+            json.dump({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
+                {"type": "command", "command": foreign}]}]}}, f)
+        pt.install(self.settings)
+        with open(self.settings, encoding="utf-8") as f:
+            cmds = [c["command"] for h in json.load(f)["hooks"]["PreToolUse"] for c in h["hooks"]]
+        self.assertIn(foreign, cmds)
+        self.assertTrue(any(c.rstrip().endswith("hook") and "pii_tripwire.py" in c and c != foreign for c in cmds))
+
+    def test_the_backup_keeps_the_original_across_reinstalls(self):
+        os.makedirs(os.path.dirname(self.settings))
+        original = json.dumps({"model": "keep-me", "hooks": {"PreToolUse": [{"matcher": "Edit", "hooks": [
+            {"type": "command", "command": "other-hook"}]}]}})
+        with open(self.settings, "w", encoding="utf-8") as f:
+            f.write(original)
+        for _ in range(3):
+            pt.install(self.settings)
+        with open(self.settings + ".bak", encoding="utf-8") as f:
+            self.assertEqual(f.read(), original)
+
+    def test_an_unexpected_shape_is_refused_and_not_touched(self):
+        os.makedirs(os.path.dirname(self.settings))
+        for bad in ({"hooks": []}, {"hooks": {"PreToolUse": None}}, []):
+            text = json.dumps(bad)
+            with open(self.settings, "w", encoding="utf-8") as f:
+                f.write(text)
+            with self.assertRaises(ValueError):
+                pt.install(self.settings)
+            with open(self.settings, encoding="utf-8") as f:
+                self.assertEqual(f.read(), text)
+
     def test_keeps_settings_leaves_a_backup_and_does_not_duplicate(self):
         os.makedirs(os.path.dirname(self.settings))
         with open(self.settings, "w", encoding="utf-8") as f:
