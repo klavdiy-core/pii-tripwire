@@ -17,7 +17,7 @@ import subprocess
 import sys
 from urllib.parse import unquote_plus
 
-__version__ = "0.3.3"
+__version__ = "0.4.0"
 CATEGORIES = ("phone", "email", "id")
 NAMES = {"phone": "a phone number", "email": "an email address", "id": "a document or ID number"}
 DEFAULT_LIST = os.path.join(os.path.expanduser("~"), ".claude", "pii-tripwire", "list.json")
@@ -158,7 +158,7 @@ def find(data, text):
 
 def _lines(text):
     """Lines as an editor numbers them: split at \\n only, a trailing \\r dropped. splitlines() also splits at form
-    feeds, \\x85 and friends, so a number after 2 MB of «p\\fq» lines was reported at :900001, not :700001 (Tsaplya)."""
+    feeds, \\x85 and friends, so a number after 2 MB of «p\\fq» lines was reported at :900001, not :700001 (a second review)."""
     return [x[:-1] if x.endswith("\r") else x for x in text.split("\n")]
 
 
@@ -253,13 +253,66 @@ def _staged():
     return out
 
 
+def _norm_path_text(s):
+    """Lower case, every slash one way - including the doubled backslashes of a path written inside source code."""
+    return s.lower().replace("\\\\", "/").replace("\\", "/")
+
+
+def load_roots(path):
+    """Internal path roots, one per line, '#' for comments. Plain text by necessity: a root has to match INSIDE a
+    longer path, so it cannot be hashed like the identifier list - keep the file private by where it lives."""
+    with open(path, encoding="utf-8-sig") as f:              # -sig: Notepad and Windows PowerShell write a BOM
+        roots = [_norm_path_text(l.strip()) for l in f if l.strip() and not l.lstrip().startswith("#")]
+    return [r.rstrip("/") for r in roots if r.rstrip("/")]
+
+
+def scan_roots(roots, text):
+    """[(line, 'root')] for lines holding a root; a hit must not run on into a longer name (C:/Notes is not
+    C:/Notesbook). Lines are numbered as everywhere else here (split at \\n only)."""
+    out = []
+    for n, line in enumerate(_lines(text), 1):
+        low = _norm_path_text(line)
+        for r in roots:
+            i = low.find(r)
+            while i != -1:
+                nxt = low[i + len(r):i + len(r) + 1]
+                if not (nxt.isalnum() or nxt == "_"):
+                    out.append((n, "root"))
+                    break
+                i = low.find(r, i + 1)
+            else:
+                continue
+            break
+    return out
+
+
 def scan(argv, list_path):
-    """scan [--patterns] <files...> | scan [--patterns] --staged. Prints path:line: category (never the value).
-    Exit 1 on a find, 2 if there is nothing to check against (no list and no --patterns) or a path was not checked."""
+    """scan [--patterns] [--roots FILE] <files...> | ... --staged. Prints path:line: category (never the value).
+    Exit 1 on a find, 2 if there is nothing to check against (no list, no --patterns, no --roots) or a path was not
+    checked."""
     patterns = "--patterns" in argv
     argv = [a for a in argv if a != "--patterns"]
+    roots = None
+    if "--roots" in argv:
+        i = argv.index("--roots")
+        if i + 1 >= len(argv):
+            print("pii-tripwire: --roots needs a file", file=sys.stderr)
+            return 2
+        try:
+            roots = load_roots(argv[i + 1])
+        except (OSError, UnicodeDecodeError):
+            # a roots file that cannot be read (missing, or not UTF-8 - PowerShell 5 writes UTF-16) means nothing was
+            # checked against it - never a pass
+            print("pii-tripwire: the roots file cannot be read (missing, unreadable or not UTF-8), nothing was "
+                  "checked against it", file=sys.stderr)
+            return 2
+        if not roots:
+            print("pii-tripwire: the roots file has no roots (only comments or blank lines), nothing to check against",
+                  file=sys.stderr)
+            return 2
+        del argv[i:i + 2]
     has_list = os.path.exists(list_path)
-    if not has_list and not patterns:
+    if not has_list and not patterns and roots is None:
         print("pii-tripwire: no list yet, nothing to check against (pii_tripwire.py add ..., or scan --patterns)",
               file=sys.stderr)
         return 2
@@ -291,6 +344,9 @@ def scan(argv, list_path):
                     found += 1
                 for n, cat in (scan_patterns(text) if patterns else []):
                     print(f"{path}:{first_line + n}: {PATTERN_NAMES[cat]}")
+                    found += 1
+                for n, _ in (scan_roots(roots, text) if roots else []):
+                    print(f"{path}:{first_line + n}: an internal path from your roots list")
                     found += 1
         except OSError:
             # a path that was not checked is never a pass: a typo or an unexpanded glob must not read as "clean"
