@@ -1,4 +1,4 @@
-"""scan --patterns: common shapes, no private list needed (Sokol's task, 25.10). All values are fictional or the
+"""scan --patterns: common shapes, no private list needed (25.10). All values are fictional or the
 standard test values (the Visa test card, the IBAN from the IBAN documentation)."""
 import os
 import subprocess

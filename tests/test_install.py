@@ -61,7 +61,7 @@ class Install(unittest.TestCase):
         exe = shlex.split(cmd, posix=True)[0]
         self.assertEqual(os.path.normcase(os.path.abspath(exe)), os.path.normcase(os.path.abspath(sys.executable)))
 
-    # Tsaplya's review of 1cbb895 (M-1060): two defects in the reinstall path
+    # a second review of 1cbb895: two defects in the reinstall path
     def test_a_foreign_hook_that_mentions_the_file_is_not_rewritten(self):
         os.makedirs(os.path.dirname(self.settings))
         foreign = "bash my_audit.sh --watch pii_tripwire.py"

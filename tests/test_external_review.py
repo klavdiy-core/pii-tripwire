@@ -42,7 +42,7 @@ class PastTwoMegabytes(unittest.TestCase):
         self.assertIn("edge.txt:999999:", r.stdout)
 
     def test_line_numbers_count_newlines_only_across_blocks(self):
-        # Tsaplya's second review: «p\x0cq» lines (a form feed inside each) put the number at :900001, not :700001
+        # a second review: «p\x0cq» lines (a form feed inside each) put the number at :900001, not :700001
         f = os.path.join(self.tmp.name, "ff.txt")
         with open(f, "w", encoding="utf-8", newline="") as fh:
             fh.write("p\x0cq\n" * 700_000 + PHONE + "\n")

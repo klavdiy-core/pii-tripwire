@@ -1,4 +1,4 @@
-"""pii_tripwire.py scan: the same matches as the hook, over files before a commit (Sokol's task, 25.10)."""
+"""pii_tripwire.py scan: the same matches as the hook, over files before a commit (25.10)."""
 import os
 import subprocess
 import sys
