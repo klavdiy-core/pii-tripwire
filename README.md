@@ -93,6 +93,20 @@ separators (`20261025 2026-10-25`), `noreply@…` addresses and placeholder doma
 `example.com` or `example.co.uk`, and `.test`, `.invalid`, `localhost`) do not match. A national phone number without `+`
 is not caught by the patterns; put your own in the list for that.
 
+## Next to the secret scanners
+
+For secrets in your code, use a real secret scanner — they are far more thorough than this. pii-tripwire is for a
+narrower thing. Cells are from each project's own README (26.10.2026).
+
+| | pii-tripwire | [gitleaks](https://github.com/gitleaks/gitleaks) | [trufflehog](https://github.com/trufflesecurity/trufflehog) |
+|---|---|---|---|
+| looks for | **your own list**: your phone, email, document numbers, in any usual spelling | secrets, by regex rules | leaked credentials, by many detectors, and it **verifies** them |
+| when | **the moment a Claude Code tool call would send it out** (a hook that denies the call), plus `scan` of files | pre-commit hook, CI action, scans of git repos, directories, stdin | pre-commit hook, GitHub Action, scans of git repos, filesystems, object stores, wikis, chats, logs and more |
+| licence | MIT | MIT | AGPL-3.0 |
+
+If your worry is an API key in a commit: gitleaks or trufflehog. If it is an AI agent pasting your own phone number
+into a web request — written as `(050) 123-45-67` while your list says `+380501234567` — that is what this was built for.
+
 ## What it does not catch (said plainly)
 
 - **Names and street addresses.** Declension, transliteration and spelling make them unmatchable without many false alarms. v1 does structured identifiers only.
