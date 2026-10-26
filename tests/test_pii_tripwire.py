@@ -91,7 +91,7 @@ class AddFromStdin(unittest.TestCase):
         import subprocess
         with tempfile.TemporaryDirectory() as d:
             env = dict(os.environ, PII_TRIPWIRE_LIST=os.path.join(d, "l.json"))
-            r = subprocess.run([sys.executable, pt.__file__, "add", "phone"], input="+380671112233\n",
+            r = subprocess.run([sys.executable, pt.__file__, "add", "phone"], input="+380671112233\n",  # fictional
                                capture_output=True, text=True, env=env, timeout=20)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(pt.counts(env["PII_TRIPWIRE_LIST"]), {"phone": 1})
