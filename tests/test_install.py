@@ -74,6 +74,35 @@ class Install(unittest.TestCase):
         self.assertIn(foreign, cmds)
         self.assertTrue(any(c.rstrip().endswith("hook") and "pii_tripwire.py" in c and c != foreign for c in cmds))
 
+    def _cmds_after_install(self, command):
+        with open(self.settings, "w", encoding="utf-8") as f:
+            json.dump({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
+                {"type": "command", "command": command}]}]}}, f)
+        pt.install(self.settings)
+        with open(self.settings, encoding="utf-8") as f:
+            return [c["command"] for h in json.load(f)["hooks"]["PreToolUse"] for c in h["hooks"]]
+
+    # second review note (26.10): a foreign program whose command merely ENDS with "pii_tripwire.py hook"
+    def test_a_foreign_program_ending_with_our_words_is_not_rewritten(self):
+        os.makedirs(os.path.dirname(self.settings))
+        for foreign in ("/usr/local/bin/other pii_tripwire.py hook",
+                        "bash wrap.sh pii_tripwire.py hook",
+                        'node "C:/x/pii_tripwire.py" hook'):
+            cmds = self._cmds_after_install(foreign)
+            self.assertIn(foreign, cmds, foreign)
+            self.assertEqual(len(cmds), 2, foreign)
+
+    def test_every_shape_we_ever_wrote_is_still_repaired(self):
+        os.makedirs(os.path.dirname(self.settings))
+        for old in ('python "C:/old/place/pii_tripwire.py" hook',
+                    "python3 /home/u/pii_tripwire.py hook",
+                    '"C:/Python311/python.exe" "C:/a b/pii_tripwire.py" hook',
+                    'py "C:\\old\\pii_tripwire.py" hook',
+                    '"/usr/bin/python3.11" "/opt/pii_tripwire.py" hook'):
+            cmds = self._cmds_after_install(old)
+            self.assertEqual(len(cmds), 1, old)
+            self.assertNotEqual(cmds[0], old, old)
+
     def test_the_backup_keeps_the_original_across_reinstalls(self):
         os.makedirs(os.path.dirname(self.settings))
         original = json.dumps({"model": "keep-me", "hooks": {"PreToolUse": [{"matcher": "Edit", "hooks": [

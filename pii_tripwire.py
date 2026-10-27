@@ -454,6 +454,20 @@ def run_hook(stdin_text, list_path=None):
 
 # ---------- install ----------
 
+# exactly three tokens: a Python interpreter (bare or by path, quoted or not), our script, `hook`;
+# a foreign program whose command only ends with "pii_tripwire.py hook" is not ours
+_OUR_HOOK = re.compile(r'^\s*(?:"(?P<qexe>[^"]+)"|(?P<exe>\S+))\s+(?:"[^"]*|[^"\s]*)pii_tripwire\.py"?\s+hook\s*$')
+_PYTHON = re.compile(r'(?:python[\d.]*|py)(?:\.exe)?', re.I)
+
+
+def _is_our_hook(command):
+    m = _OUR_HOOK.match(command)
+    if not m:
+        return False
+    exe = (m.group("qexe") or m.group("exe")).replace("\\", "/").rsplit("/", 1)[-1]
+    return bool(_PYTHON.fullmatch(exe))
+
+
 def install(settings_path, script=None):
     script = (script or os.path.abspath(__file__)).replace("\\", "/")
     # the interpreter that runs install, by full path: a bare `python` is often not on PATH on Windows (only `py`),
@@ -475,8 +489,7 @@ def install(settings_path, script=None):
     entries = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
     command = f'{py} "{script}" hook'
     # ours = a command of the shape install writes (old or new); a foreign hook that merely names the file is left alone
-    ours = [c for h in entries for c in h.get("hooks", [])
-            if re.search(r'pii_tripwire\.py"?\s+hook\s*$', str(c.get("command", "")))]
+    ours = [c for h in entries for c in h.get("hooks", []) if _is_our_hook(str(c.get("command", "")))]
     if ours:
         for c in ours:                       # a reinstall repairs an old entry (bare `python`, a moved script)
             c["command"] = command
