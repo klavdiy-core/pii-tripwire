@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import pii_tripwire as pt  # noqa: E402
@@ -98,10 +99,28 @@ class Install(unittest.TestCase):
                     "python3 /home/u/pii_tripwire.py hook",
                     '"C:/Python311/python.exe" "C:/a b/pii_tripwire.py" hook',
                     'py "C:\\old\\pii_tripwire.py" hook',
-                    '"/usr/bin/python3.11" "/opt/pii_tripwire.py" hook'):
+                    '"/usr/bin/python3.11" "/opt/pii_tripwire.py" hook',
+                    '"/opt/pypy/bin/pypy3" "/opt/pii_tripwire.py" hook',
+                    '"C:/Py313/python3.13t.exe" "C:/old/pii_tripwire.py" hook',
+                    '"C:/Py313/pythonw.exe" "C:/old/pii_tripwire.py" hook'):
             cmds = self._cmds_after_install(old)
             self.assertEqual(len(cmds), 1, old)
             self.assertNotEqual(cmds[0], old, old)
+
+    # second review of 5d09eab (Tsaplya M-1639): install writes sys.executable as it is, whatever its name;
+    # installing twice under that interpreter must leave exactly one hook
+    def test_a_second_install_under_any_interpreter_name_keeps_one_hook(self):
+        os.makedirs(os.path.dirname(self.settings))
+        for name in ("python3.13t.exe", "pythonw.exe", "pypy3", "some-custom-runtime.exe"):
+            exe = os.path.join(self.tmp.name, "bin", name)
+            if os.path.exists(self.settings):
+                os.remove(self.settings)
+            with mock.patch.object(sys, "executable", exe):
+                pt.install(self.settings)
+                pt.install(self.settings)
+            with open(self.settings, encoding="utf-8") as f:
+                cmds = [c["command"] for h in json.load(f)["hooks"]["PreToolUse"] for c in h["hooks"]]
+            self.assertEqual(len(cmds), 1, name)
 
     def test_the_backup_keeps_the_original_across_reinstalls(self):
         os.makedirs(os.path.dirname(self.settings))

@@ -457,15 +457,18 @@ def run_hook(stdin_text, list_path=None):
 # exactly three tokens: a Python interpreter (bare or by path, quoted or not), our script, `hook`;
 # a foreign program whose command only ends with "pii_tripwire.py hook" is not ours
 _OUR_HOOK = re.compile(r'^\s*(?:"(?P<qexe>[^"]+)"|(?P<exe>\S+))\s+(?:"[^"]*|[^"\s]*)pii_tripwire\.py"?\s+hook\s*$')
-_PYTHON = re.compile(r'(?:python[\d.]*|py)(?:\.exe)?', re.I)
+_PYTHON = re.compile(r'(?:python[\d.]*[tdmw]?|pythonw|pypy[\d.]*|py)(?:\.exe)?', re.I)
 
 
 def _is_our_hook(command):
     m = _OUR_HOOK.match(command)
     if not m:
         return False
-    exe = (m.group("qexe") or m.group("exe")).replace("\\", "/").rsplit("/", 1)[-1]
-    return bool(_PYTHON.fullmatch(exe))
+    exe = (m.group("qexe") or m.group("exe")).replace("\\", "/")
+    # the interpreter install itself writes is ours whatever it is called (a reinstall must not add a second hook)
+    if os.path.normcase(exe) == os.path.normcase(os.path.abspath(sys.executable).replace("\\", "/")):
+        return True
+    return bool(_PYTHON.fullmatch(exe.rsplit("/", 1)[-1]))
 
 
 def install(settings_path, script=None):
