@@ -107,7 +107,7 @@ class Install(unittest.TestCase):
             self.assertEqual(len(cmds), 1, old)
             self.assertNotEqual(cmds[0], old, old)
 
-    # second review of 5d09eab (a reviewer M-1639): install writes sys.executable as it is, whatever its name;
+    # second review of 5d09eab: install writes sys.executable as it is, whatever its name;
     # installing twice under that interpreter must leave exactly one hook
     def test_a_second_install_under_any_interpreter_name_keeps_one_hook(self):
         os.makedirs(os.path.dirname(self.settings))
